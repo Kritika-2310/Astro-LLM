@@ -1,7 +1,7 @@
 run_name: "astro-llm-r16-lr2e4-e3"
 
 model:
-  base_model_id: "meta-llama/Meta-Llama-3.1-8B-Instruct"
+  base_model_id: "meta-llama/Meta-Llama-3-8B-Instruct"
   load_in_4bit: true
   max_seq_length: 1024
 
