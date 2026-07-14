@@ -38,3 +38,190 @@ How do astronomers measure distances to faraway galaxies?
 What is a rogue planet?
 What is the black hole information paradox?
 What is the multiverse hypothesis and is it testable?
+What is the Chandrasekhar limit?
+Why do galaxies have spiral arms?
+What is a magnetar?
+How does a telescope actually work?
+What is the cosmic web?
+What is Hawking radiation?
+Can two black holes merge?
+What is the difference between a solar and lunar eclipse?
+Why does Saturn have rings but other planets don't?
+What is the Oort Cloud?
+What is stellar nucleosynthesis?
+How do we know the universe is flat?
+What is a quasar?
+What is the difference between a meteor, meteoroid, and meteorite?
+What is the heliosphere?
+Why do planets orbit in the same plane around the Sun?
+What is the twin paradox in relativity?
+What is a Dyson sphere and could it exist?
+How did the first stars form after the Big Bang?
+What is the anthropic principle?
+What is frame dragging?
+Why is Venus hotter than Mercury despite being farther from the Sun?
+What is the cosmic inflation theory?
+What is a white dwarf?
+How do binary star systems work?
+What is the interstellar medium?
+What is a gamma-ray burst?
+Could a planet orbit two stars?
+What is the Great Red Spot on Jupiter?
+What is stellar parallax?
+What is the age of the Sun?
+How do we detect gravitational waves?
+What is LIGO and why does it matter?
+What happens when two neutron stars collide?
+What is a Trojan asteroid?
+How did the solar system form?
+What is the Kuiper Belt?
+What is planetary differentiation?
+Why does Mars have the tallest volcano in the solar system?
+What is the Voyager spacecraft doing right now?
+How do comets get their tails?
+What is the difference between reflecting and refracting telescopes?
+What is adaptive optics in astronomy?
+What is the James Webb Space Telescope looking for?
+What did the Hubble Space Telescope discover?
+What is the cosmic distance ladder?
+What is a Type Ia supernova and why is it useful?
+What is the event horizon of a black hole?
+What is the photon sphere around a black hole?
+What is an accretion disk?
+How do we know black holes exist if we cannot see them?
+What is the difference between stellar and supermassive black holes?
+What is Sagittarius A star?
+How fast is the Milky Way moving through space?
+What is the Local Group of galaxies?
+What is the Virgo Supercluster?
+What is the Great Wall in cosmology?
+What is baryon acoustic oscillation?
+What is the Sunyaev-Zel'dovich effect?
+What is a Seyfert galaxy?
+What is an elliptical galaxy?
+What is a lenticular galaxy?
+What causes galaxy mergers?
+What will happen when the Milky Way and Andromeda collide?
+What is tidal disruption event?
+What is an ultraluminous X-ray source?
+What is the difference between a nova and a supernova?
+What is a planetary nebula?
+What is the Hertzsprung-Russell diagram?
+What is the main sequence in stellar evolution?
+What is a red giant?
+What is a brown dwarf?
+What is a T Tauri star?
+What is stellar wind?
+What is a protoplanetary disk?
+How do planets form from gas and dust?
+What is the Nice model of solar system formation?
+What is the Grand Tack hypothesis?
+What is planetary migration?
+What is a hot Jupiter?
+What is a super-Earth?
+What is an ocean world?
+What is the habitable zone around a star?
+What is the concept of panspermia?
+What is the SETI project looking for?
+What is the Wow signal?
+What is the Breakthrough Listen project?
+What is fast radio burst?
+What is a blazar?
+What is an active galactic nucleus?
+What is relativistic jet in astrophysics?
+What is the Eddington luminosity?
+What is the Tolman-Oppenheimer-Volkoff limit?
+What is degeneracy pressure in stellar physics?
+What is electron degeneracy pressure?
+What is neutron degeneracy pressure?
+What is quark matter?
+What is a strange star?
+What is plasma in the context of stars?
+What is nuclear fusion and how is it different from fission?
+What is the proton-proton chain reaction?
+What is the CNO cycle in stars?
+What is a helium flash?
+What is carbon detonation in a white dwarf?
+What is pair instability supernova?
+What is a hypernova?
+What is a kilonova?
+What is r-process nucleosynthesis?
+What is s-process nucleosynthesis?
+Why is gold so rare and where did it come from?
+What is cosmic ray and where does it come from?
+What is the Van Allen radiation belt?
+What is the magnetosphere of Earth?
+What is space weather?
+What is a coronal mass ejection?
+What is a solar flare?
+What is the solar cycle?
+What is the Parker Solar Probe doing?
+What is the difference between space and atmosphere?
+What is the Karman line?
+What is microgravity and how does it affect the human body?
+What is orbital mechanics?
+What is a Lagrange point?
+What is the difference between a geostationary and polar orbit?
+What is the Hohmann transfer orbit?
+What is gravity assist in space travel?
+What is the rocket equation?
+What is specific impulse in rocketry?
+What is ion propulsion?
+What is a solar sail?
+Could humans ever travel to another star?
+What is the nearest star to our Sun?
+What is Proxima Centauri b?
+What is the TRAPPIST-1 system?
+What is the biosignature in the context of finding alien life?
+What is the oxygen paradox in biosignatures?
+What is spectroscopy and how do we use it in astronomy?
+What is an emission spectrum?
+What is an absorption spectrum?
+What is the photoelectric effect and its role in astronomy?
+What is a charge-coupled device in telescopes?
+What is radio astronomy?
+What was the first radio source discovered beyond the Sun?
+What is Very Long Baseline Interferometry?
+What is a space interferometer?
+What is X-ray astronomy?
+What is infrared astronomy and why does it matter?
+What is ultraviolet astronomy?
+What is neutrino astronomy?
+What is multi-messenger astronomy?
+What did GW170817 teach us about the universe?
+What is the Planck satellite and what did it measure?
+What is the WMAP satellite?
+What is the cosmic neutrino background?
+What is dark matter decay?
+What is a WIMP in particle physics and cosmology?
+What is an axion in the context of dark matter?
+What is modified Newtonian dynamics as an alternative to dark matter?
+What is the cosmological constant problem?
+What is vacuum energy?
+What is the fine-tuned universe argument?
+What is the Boltzmann brain thought experiment?
+What is the heat death of the universe?
+What is the Big Rip scenario?
+What is the Big Crunch scenario?
+What is the Big Bounce hypothesis?
+What is loop quantum cosmology?
+What is string theory and does it explain the universe?
+What is M-theory?
+What is the holographic principle in physics?
+What is the AdS/CFT correspondence?
+What is quantum gravity?
+What is the Planck length?
+What is the Planck time?
+What happened in the first second after the Big Bang?
+What is baryogenesis?
+What is leptogenesis?
+What is the matter-antimatter asymmetry problem?
+What is CP violation in cosmology?
+What is the electroweak epoch?
+What is the quark-gluon plasma?
+What is cosmic reionization?
+What is the epoch of recombination?
+What is the dark age of the universe?
+What is the first light in the universe?
+What is Population III stars?
+What is cosmic chemical evolution?
