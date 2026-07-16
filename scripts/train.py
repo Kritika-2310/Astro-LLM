@@ -1,5 +1,5 @@
 """
-QLoRA fine-tuning on top of an open-source instruct model, using PEFT + TRL.
+QLoRA fine-tuning using PEFT + TRL.
 Run: python scripts/train.py --config configs/training_config.yaml
 """
 import argparse
@@ -17,7 +17,6 @@ from transformers import (
     AutoTokenizer,
     BitsAndBytesConfig,
     EarlyStoppingCallback,
-    TrainingArguments,
 )
 from trl import SFTTrainer, SFTConfig
 
@@ -43,8 +42,7 @@ def format_example(example, template):
     question = example["instruction"]
     if example.get("input"):
         question = f"{question}\n{example['input']}"
-    prompt = template.format(question=question)
-    return prompt + " " + example["output"]
+    return template.format(question=question) + " " + example["output"]
 
 
 def main():
@@ -67,9 +65,7 @@ def main():
         cfg["training"]["num_train_epochs"] = args.override_epochs
 
     template = Path(cfg["data"]["prompt_template"]).read_text()
-
-    if cfg["tracking"]["report_to"] == "wandb":
-        os.environ.setdefault("WANDB_PROJECT", cfg["tracking"]["wandb_project"])
+    os.environ.setdefault("WANDB_PROJECT", cfg["tracking"]["wandb_project"])
 
     bnb_config = None
     if cfg["model"]["load_in_4bit"]:
@@ -104,10 +100,7 @@ def main():
 
     def _format(batch):
         return {"text": [
-            format_example(
-                {"instruction": i, "input": inp, "output": o},
-                template
-            )
+            format_example({"instruction": i, "input": inp, "output": o}, template)
             for i, inp, o in zip(batch["instruction"], batch["input"], batch["output"])
         ]}
 
@@ -136,7 +129,6 @@ def main():
         run_name=cfg["run_name"],
         seed=t["seed"],
         bf16=True,
-        max_seq_length=cfg["model"]["max_seq_length"],
         dataset_text_field="text",
     )
 
