@@ -19,7 +19,7 @@ from transformers import (
     EarlyStoppingCallback,
     TrainingArguments,
 )
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 
 load_dotenv()
 
@@ -114,7 +114,7 @@ def main():
     dataset = dataset.map(_format, batched=True)
 
     t = cfg["training"]
-    training_args = TrainingArguments(
+    sft_config = SFTConfig(
         output_dir=cfg["output"]["output_dir"],
         learning_rate=t["learning_rate"],
         num_train_epochs=t["num_train_epochs"],
@@ -136,15 +136,15 @@ def main():
         run_name=cfg["run_name"],
         seed=t["seed"],
         bf16=True,
+        max_seq_length=cfg["model"]["max_seq_length"],
+        dataset_text_field="text",
     )
 
     trainer = SFTTrainer(
         model=model,
-        args=training_args,
+        args=sft_config,
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
-        dataset_text_field="text",
-        max_seq_length=cfg["model"]["max_seq_length"],
         callbacks=[EarlyStoppingCallback(
             early_stopping_patience=t["early_stopping_patience"]
         )],
