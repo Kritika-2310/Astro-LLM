@@ -1,8 +1,10 @@
 .env
 __pycache__/
 *.pyc
-outputs/
 data/raw/candidates.jsonl
 .venv/
 *.egg-info/
 wandb/
+outputs/*/checkpoint-*
+outputs/**/wandb/
+outputs/
