@@ -1,6 +1,6 @@
 # Astro-LLM — Sagan-Style Astronomy Explainer
 
-Fine-tuned Llama 3 8B to answer astronomy questions with the vivid, scientifically rigorous voice of Carl Sagan and Neil deGrasse Tyson.
+Fine-tuned Llama 3.1 8B to answer astronomy questions with the vivid, scientifically rigorous voice of Carl Sagan and Neil deGrasse Tyson.
 
 **Base model:** dry, textbook answers  
 **Fine-tuned:** warm, analogy-driven explanations that never sacrifice accuracy
@@ -11,7 +11,7 @@ Fine-tuned Llama 3 8B to answer astronomy questions with the vivid, scientifical
 
 **Question:** What is a black hole?
 
-**Base Llama 3 8B:**
+**Base Llama 3.1 8B:**
 > A black hole is a region in space where the gravitational pull is so strong that nothing, not even light, can escape. It forms when a massive star collapses at the end of its life...
 
 **Astro-LLM (fine-tuned):**
@@ -36,7 +36,7 @@ Fine-tuned Llama 3 8B to answer astronomy questions with the vivid, scientifical
 ## Architecture
 
 ```
-Base model:   meta-llama/Meta-Llama-3-8B-Instruct
+Base model:   meta-llama/Meta-Llama-3.1-8B-Instruct
 Method:       QLoRA (4-bit NF4) + LoRA rank 16
 Target:       q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj
 Alpha:        32  |  Dropout: 0.05
@@ -100,7 +100,7 @@ from peft import PeftModel
 import torch
 
 base = AutoModelForCausalLM.from_pretrained(
-    "meta-llama/Meta-Llama-3-8B-Instruct",
+    "meta-llama/Meta-Llama-3.1-8B-Instruct",
     device_map="auto",
     torch_dtype=torch.bfloat16
 )
@@ -147,7 +147,7 @@ Training loss curve shows steady descent from 1.68 → 0.45 over 3 epochs with n
 
 | Component | Tool |
 |-----------|------|
-| Base model | Llama 3 8B Instruct |
+| Base model | Llama 3.1 8B Instruct |
 | Fine-tuning | PEFT + TRL (QLoRA) |
 | Data generation | Groq API (Llama 3.3 70B) |
 | LLM judge | Gemini 1.5 Flash |
