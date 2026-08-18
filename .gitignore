@@ -8,3 +8,4 @@ wandb/
 outputs/*/checkpoint-*
 outputs/**/wandb/
 outputs/
+outputs/
