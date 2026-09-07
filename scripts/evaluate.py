@@ -1,17 +1,15 @@
 """
-Scores a model against data/eval_benchmark.jsonl two ways:
+Scores a model against data/eval_benchmark.jsonl.
 1. Rule-based fact coverage
-2. Gemini as LLM judge (accuracy + voice, 1-5 each)
-
-Usage:
-    python scripts/evaluate.py --model-path base --label base_model
-    python scripts/evaluate.py --model-path outputs/astro-llm-r16-lr2e4-e3/final_adapter --label finetuned
+2. Gemini judge — accuracy + voice (1-5 each)
 """
 import argparse
 import json
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+import torch
+import gc
 
 load_dotenv()
 
@@ -20,7 +18,6 @@ def load_benchmark():
         return [json.loads(l) for l in f]
 
 def generate_answer(model_path, base_model_id, question, template):
-    import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -28,21 +25,30 @@ def generate_answer(model_path, base_model_id, question, template):
         base_model_id, token=os.environ.get("HF_TOKEN")
     )
     model = AutoModelForCausalLM.from_pretrained(
-        base_model_id, device_map="auto",
-        torch_dtype=torch.bfloat16,
+        base_model_id, device_map="cpu",
+        torch_dtype=torch.float16,
         token=os.environ.get("HF_TOKEN")
     )
     if model_path != "base":
         model = PeftModel.from_pretrained(model, model_path)
 
+    model.to("cuda")
     prompt = template.format(question=question)
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    out = model.generate(
-        **inputs, max_new_tokens=300, do_sample=True,
-        temperature=0.7, top_p=0.9
-    )
+    inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+    
+    with torch.no_grad():
+        out = model.generate(
+            **inputs, max_new_tokens=200, do_sample=True,
+            temperature=0.7, top_p=0.9
+        )
     text = tokenizer.decode(out[0], skip_special_tokens=True)
     prompt_text = tokenizer.decode(inputs["input_ids"][0], skip_special_tokens=True)
+    
+    # Clean up
+    del model, tokenizer, inputs, out
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     return text[len(prompt_text):].strip()
 
 def rule_score(answer, item):
@@ -60,29 +66,23 @@ def rule_score(answer, item):
     }
 
 def gemini_judge(client, question, answer):
-    prompt = f"""You are grading an astronomy explanation on two dimensions.
+    prompt = f"""Grade this astronomy answer on accuracy (1-5) and voice (1-5).
 
 Question: {question}
 Answer: {answer}
 
-Grade on:
-1. Scientific accuracy (1-5): Are all facts correct? Any misleading claims?
-2. Voice quality (1-5): Is it vivid and engaging like Carl Sagan or Neil deGrasse Tyson?
-
-Reply ONLY with valid JSON, no markdown:
-{{"accuracy_score": <1-5>, "voice_score": <1-5>, "reasoning": "<2 sentences>"}}"""
+Reply ONLY with JSON:
+{{"accuracy_score": <1-5>, "voice_score": <1-5>, "reasoning": "<1 sentence>"}}"""
 
     try:
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model="gemini-2.0-flash",
             contents=prompt
         )
-        text = response.text.strip()
-        text = text.replace("```json", "").replace("```", "").strip()
+        text = response.text.strip().replace("```json", "").replace("```", "").strip()
         return json.loads(text)
     except Exception as e:
-        print(f"    Gemini error: {e}")
-        return {"accuracy_score": None, "voice_score": None, "reasoning": f"ERROR: {e}"}
+        return {"accuracy_score": None, "voice_score": None, "reasoning": f"ERROR"}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -102,39 +102,40 @@ def main():
     out_path.parent.mkdir(exist_ok=True)
 
     results = []
-    for item in benchmark:
-        print(f"  Generating answer for [{item['id']}]...")
-        answer = generate_answer(
-            args.model_path, args.base_model_id,
-            item["question"], template
-        )
+    for i, item in enumerate(benchmark):
+        print(f"[{i+1}/{len(benchmark)}] {item['id']}")
+        try:
+            answer = generate_answer(
+                args.model_path, args.base_model_id,
+                item["question"], template
+            )
+        except Exception as e:
+            print(f"  Gen error: {e}")
+            continue
+            
         rb = rule_score(answer, item)
         judge = gemini_judge(client, item["question"], answer)
         result = {**item, "answer": answer, **rb, **judge}
         results.append(result)
-        print(f"    fact={rb['fact_coverage']:.2f}  "
-              f"pitfalls={rb['pitfalls_triggered']}  "
-              f"acc={judge.get('accuracy_score')}  "
-              f"voice={judge.get('voice_score')}")
-        if judge.get("reasoning"):
-            print(f"    Gemini: {judge['reasoning'][:80]}")
+        print(f"  fact={rb['fact_coverage']:.2f} acc={judge.get('accuracy_score')} voice={judge.get('voice_score')}")
 
     with out_path.open("w") as f:
         for r in results:
             f.write(json.dumps(r) + "\n")
 
     n = len(results)
-    avg_fact = sum(r["fact_coverage"] for r in results) / n
-    total_pitfalls = sum(r["pitfalls_triggered"] for r in results)
-    acc = [r["accuracy_score"] for r in results if r.get("accuracy_score")]
-    voice = [r["voice_score"] for r in results if r.get("voice_score")]
+    if n > 0:
+        avg_fact = sum(r["fact_coverage"] for r in results) / n
+        total_pitfalls = sum(r["pitfalls_triggered"] for r in results)
+        acc = [r["accuracy_score"] for r in results if r.get("accuracy_score")]
+        voice = [r["voice_score"] for r in results if r.get("voice_score")]
 
-    print(f"\n=== {args.label} Summary ===")
-    print(f"Avg fact coverage : {avg_fact:.2%}")
-    print(f"Total pitfalls    : {total_pitfalls}")
-    if acc:   print(f"Avg accuracy (Gemini): {sum(acc)/len(acc):.2f}/5")
-    if voice: print(f"Avg voice    (Gemini): {sum(voice)/len(voice):.2f}/5")
-    print(f"Results -> {out_path}")
+        print(f"\n=== {args.label} Summary ===")
+        print(f"Avg fact coverage : {avg_fact:.2%}")
+        print(f"Total pitfalls    : {total_pitfalls}")
+        if acc:   print(f"Avg accuracy (Gemini): {sum(acc)/len(acc):.2f}/5")
+        if voice: print(f"Avg voice    (Gemini): {sum(voice)/len(voice):.2f}/5")
+        print(f"Results -> {out_path}")
 
 if __name__ == "__main__":
     main()
