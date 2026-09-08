@@ -1,7 +1,5 @@
 """
-Scores a model against data/eval_benchmark.jsonl.
-1. Rule-based fact coverage
-2. Gemini judge — accuracy + voice (1-5 each)
+Evaluate with 8-bit quantization to fit in P100 (16GB).
 """
 import argparse
 import json
@@ -19,32 +17,34 @@ def load_benchmark():
 
 def generate_answer(model_path, base_model_id, question, template):
     from peft import PeftModel
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+    # 8-bit quantization
+    bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+    
     tokenizer = AutoTokenizer.from_pretrained(
         base_model_id, token=os.environ.get("HF_TOKEN")
     )
     model = AutoModelForCausalLM.from_pretrained(
-        base_model_id, device_map="cpu",
-        torch_dtype=torch.float16,
+        base_model_id,
+        quantization_config=bnb_config,
+        device_map="auto",
         token=os.environ.get("HF_TOKEN")
     )
     if model_path != "base":
         model = PeftModel.from_pretrained(model, model_path)
 
-    model.to("cuda")
     prompt = template.format(question=question)
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
     
     with torch.no_grad():
         out = model.generate(
-            **inputs, max_new_tokens=200, do_sample=True,
+            **inputs, max_new_tokens=150, do_sample=True,
             temperature=0.7, top_p=0.9
         )
     text = tokenizer.decode(out[0], skip_special_tokens=True)
     prompt_text = tokenizer.decode(inputs["input_ids"][0], skip_special_tokens=True)
     
-    # Clean up
     del model, tokenizer, inputs, out
     torch.cuda.empty_cache()
     gc.collect()
@@ -82,7 +82,7 @@ Reply ONLY with JSON:
         text = response.text.strip().replace("```json", "").replace("```", "").strip()
         return json.loads(text)
     except Exception as e:
-        return {"accuracy_score": None, "voice_score": None, "reasoning": f"ERROR"}
+        return {"accuracy_score": None, "voice_score": None, "reasoning": "ERROR"}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -110,7 +110,7 @@ def main():
                 item["question"], template
             )
         except Exception as e:
-            print(f"  Gen error: {e}")
+            print(f"  Error: {e}")
             continue
             
         rb = rule_score(answer, item)
