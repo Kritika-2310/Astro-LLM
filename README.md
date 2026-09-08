@@ -29,7 +29,6 @@ Fine-tuned Llama 3.1 8B to answer astronomy questions with the vivid, scientific
 | Training time | ~70 mins on T4 |
 | Trainable params | 41.9M / 8.07B (0.52%) |
 
-*Evaluation scores (base vs fine-tuned on 15-question benchmark) — coming soon*
 
 ---
 
@@ -167,4 +166,3 @@ Training loss curve shows steady descent from 1.68 → 0.45 over 3 epochs with n
 
 ---
 
-*Evaluation scores will be updated once the base vs fine-tuned benchmark run completes.*
