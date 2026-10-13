@@ -1,0 +1,17 @@
+# Audience definitions used by data generation, judging, training and evaluation.
+# The dict key (beginner / enthusiast / advanced) is the `style` value stored in the data.
+# EDIT the descriptions to match your paper's definitions, then regenerate; do not change them mid-run.
+# `words` = [min, max] answer length enforced by scripts/data_pipeline/03_filter.py
+styles:
+  beginner:
+    name: "Curious beginner"
+    description: "A curious reader with no physics background (roughly high-school level). Everyday words, one concrete analogy, define any jargon in passing, no equations."
+    words: [40, 130]
+  enthusiast:
+    name: "Astronomy enthusiast"
+    description: "An amateur astronomer or science-magazine reader. Comfortable with basic terms (star, galaxy, light-year, spectrum). Add the mechanism or a number for context; at most one analogy."
+    words: [60, 190]
+  advanced:
+    name: "Physics-literate student"
+    description: "An undergraduate physics or astronomy student. Use correct terminology, name the governing physics (laws, scales, units), and state where simple pictures break down."
+    words: [70, 250]

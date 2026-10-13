@@ -15,7 +15,7 @@ def load_benchmark():
     with open("data/eval_benchmark.jsonl") as f:
         return [json.loads(l) for l in f]
 
-def generate_answer(model_path, base_model_id, question, template):
+def generate_answer(model_path, base_model_id, question, template, style=None):
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -34,7 +34,8 @@ def generate_answer(model_path, base_model_id, question, template):
     if model_path != "base":
         model = PeftModel.from_pretrained(model, model_path)
 
-    prompt = template.format(question=question)
+    from prompting import build_prompt
+    prompt = build_prompt(template, question, style)
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
     
     with torch.no_grad():
@@ -91,12 +92,15 @@ def main():
                         default=os.environ.get("BASE_MODEL_ID",
                         "meta-llama/Meta-Llama-3.1-8B-Instruct"))
     parser.add_argument("--label", required=True)
+    parser.add_argument("--template", default="prompts/sagan_style_template.txt")
+    parser.add_argument("--style", default=None,
+                        help="audience style key (beginner/enthusiast/advanced); needs --template prompts/audience_style_template.txt")
     args = parser.parse_args()
 
     from google import genai
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-    template = Path("prompts/sagan_style_template.txt").read_text()
+    template = Path(args.template).read_text()
     benchmark = load_benchmark()
     out_path = Path(f"outputs/eval_{args.label}.jsonl")
     out_path.parent.mkdir(exist_ok=True)
@@ -107,7 +111,7 @@ def main():
         try:
             answer = generate_answer(
                 args.model_path, args.base_model_id,
-                item["question"], template
+                item["question"], template, args.style
             )
         except Exception as e:
             print(f"  Error: {e}")

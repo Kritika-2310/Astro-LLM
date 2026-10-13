@@ -20,6 +20,8 @@ from transformers import (
 )
 from trl import SFTTrainer, SFTConfig
 
+from prompting import build_prompt, load_styles
+
 load_dotenv()
 
 
@@ -38,11 +40,11 @@ def load_lora_config(path="configs/lora_config.yaml"):
     return LoraConfig(**raw)
 
 
-def format_example(example, template):
+def format_example(example, template, styles=None):
     question = example["instruction"]
     if example.get("input"):
         question = f"{question}\n{example['input']}"
-    return template.format(question=question) + " " + example["output"]
+    return build_prompt(template, question, example.get("style"), styles) + " " + example["output"]
 
 
 def main():
@@ -98,10 +100,14 @@ def main():
         "validation": cfg["data"]["val_path"],
     })
 
+    styles = load_styles(cfg["data"]["styles_path"]) if cfg["data"].get("styles_path") else None
+
     def _format(batch):
+        n = len(batch["instruction"])
+        sty = batch["style"] if "style" in batch else [None] * n   # v1 data has no style column
         return {"text": [
-            format_example({"instruction": i, "input": inp, "output": o}, template)
-            for i, inp, o in zip(batch["instruction"], batch["input"], batch["output"])
+            format_example({"instruction": i, "input": inp, "output": o, "style": s}, template, styles)
+            for i, inp, o, s in zip(batch["instruction"], batch["input"], batch["output"], sty)
         ]}
 
     dataset = dataset.map(_format, batched=True)

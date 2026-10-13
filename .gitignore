@@ -9,3 +9,7 @@ outputs/*/checkpoint-*
 outputs/**/wandb/
 outputs/
 outputs/
+
+# v2 data pipeline
+data/raw/*.pdf
+data/interim/

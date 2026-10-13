@@ -1,0 +1,6 @@
+# <Wikipedia page title><TAB><OpenStax Astronomy 2e chapter number it belongs to>
+# Run `python scripts/data_pipeline/01_extract_corpus.py --pdf data/raw/astronomy2e.pdf --list-only` to see chapter numbers,
+# then map each page to its chapter. Pages of held-out chapters are held out automatically.
+# Example rows (verify the chapter numbers against your list):
+# Black hole	<chapter number>
+# Neutron star	<chapter number>

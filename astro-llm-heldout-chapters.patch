@@ -1,0 +1,94 @@
+diff --git a/configs/data_pipeline.yaml b/configs/data_pipeline.yaml
+index 1aaef53..98a2373 100644
+--- a/configs/data_pipeline.yaml
++++ b/configs/data_pipeline.yaml
+@@ -4,7 +4,11 @@ corpus:
+   chunk_words: 350            # words per chunk
+   chunk_overlap: 50
+   min_chunk_words: 200        # shorter chunks are dropped
+-  n_heldout_chapters: 3       # whole chapters (and their Wikipedia pages) never used for training data
++  # Whole chapters (and their Wikipedia pages) never used for training data.
++  # Explicit list wins. Chosen for topic spread (solar system / stars / galaxies) and size; black-hole chapters (24, 27)
++  # are kept in training because data/eval_benchmark.jsonl has black-hole questions.
++  heldout_chapters: [13, 22, 28]   # 13 Comets and Asteroids, 22 Stars from Adolescence to Old Age, 28 Evolution and Distribution of Galaxies
++  n_heldout_chapters: 3            # only used (random, seeded) if heldout_chapters is empty
+   openstax_chapter_regex: '^(Chapter\s+)?\d+\b'   # which level-1 PDF bookmarks count as chapters
+ 
+ generation:
+diff --git a/docs/DATA_PIPELINE.md b/docs/DATA_PIPELINE.md
+index 1e62db2..baef9df 100644
+--- a/docs/DATA_PIPELINE.md
++++ b/docs/DATA_PIPELINE.md
+@@ -21,7 +21,7 @@ Training stays on Colab: `python scripts/train.py --config configs/training_conf
+ 
+ ## Design rules
+ 
+-- Held-out chapters (config `corpus.n_heldout_chapters`, seeded) never feed training data; their Wikipedia pages are held out too.
++- Held-out chapters (config `corpus.heldout_chapters`; random seeded fallback via `n_heldout_chapters`) never feed training data; their Wikipedia pages are held out too. If you change them, re-run step 1, and delete stale `data/interim/` and `data/eval/heldout_mcq.jsonl`.
+ - Split is grouped by source chunk, so all styles of a question (and any passage) stay in one split; `04_split.py` asserts this.
+ - Generated questions too similar to `data/eval_benchmark.jsonl` or v1 val/test are dropped (`leak_threshold`).
+ - A question is kept only if all 3 style answers pass the rule filters and the judge.
+diff --git a/scripts/data_pipeline/01_extract_corpus.py b/scripts/data_pipeline/01_extract_corpus.py
+index 5a502f8..c3026ac 100644
+--- a/scripts/data_pipeline/01_extract_corpus.py
++++ b/scripts/data_pipeline/01_extract_corpus.py
+@@ -19,7 +19,7 @@ import sys
+ from pathlib import Path
+ 
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+-from common import ROOT, load_cfg, write_jsonl  # noqa: E402
++from common import ROOT, load_cfg, read_jsonl, write_jsonl  # noqa: E402
+ 
+ import json  # noqa: E402
+ 
+@@ -77,8 +77,16 @@ def main():
+         print("\nIf this list looks wrong (front matter, appendices), tune corpus.openstax_chapter_regex in configs/data_pipeline.yaml.")
+         return
+ 
+-    rng = random.Random(cfg["seed"])
+-    heldout_ids = sorted(rng.sample([n for n, _, _ in chapters], c["n_heldout_chapters"]))
++    all_ids = [n for n, _, _ in chapters]
++    fixed = c.get("heldout_chapters") or []
++    if fixed:
++        missing = [n for n in fixed if n not in all_ids]
++        if missing:
++            sys.exit(f"heldout_chapters {missing} not found in this PDF (chapters are 1..{len(all_ids)}).")
++        heldout_ids = sorted(fixed)
++    else:
++        rng = random.Random(cfg["seed"])
++        heldout_ids = sorted(rng.sample(all_ids, c["n_heldout_chapters"]))
+     title_of = {n: t for n, t, _ in chapters}
+ 
+     records = []
+@@ -121,6 +129,14 @@ def main():
+     print(f"\nHeld-out chapters: {[(n, title_of[n]) for n in heldout_ids]}")
+     print(f"chunks_train: {len(train)}   chunks_heldout: {len(held)}   -> {out}")
+ 
++    stale = [r for r in read_jsonl(ROOT / "data/interim/raw_qa.jsonl") if r["chapter_idx"] in heldout_ids]
++    if stale:
++        print(f"\nWARNING: data/interim/raw_qa.jsonl has {len(stale)} rows from now-held-out chapters. "
++              "03_filter.py will drop them automatically; to start clean: rm -rf data/interim")
++    for stale_file in ("data/eval/heldout_mcq.jsonl", "data/interim/mcq_rejected.txt"):
++        if (ROOT / stale_file).exists():
++            print(f"NOTE: {stale_file} was built for the previous held-out set; delete it and re-run step 5.")
++
+ 
+ if __name__ == "__main__":
+     main()
+diff --git a/scripts/data_pipeline/03_filter.py b/scripts/data_pipeline/03_filter.py
+index 7a6b902..5d263ec 100644
+--- a/scripts/data_pipeline/03_filter.py
++++ b/scripts/data_pipeline/03_filter.py
+@@ -168,7 +168,11 @@ def main():
+     f = cfg["filter"]
+     styles = load_styles()
+     raw = read_jsonl(ROOT / "data/interim/raw_qa.jsonl")
+-    report = {"generated": len(raw)}
++    held_path = ROOT / "data/corpus/heldout_chapters.json"
++    held = {h["idx"] for h in json.loads(held_path.read_text())["heldout"]} if held_path.exists() else set()
++    n_raw = len(raw)
++    raw = [r for r in raw if r["chapter_idx"] not in held]   # safety: held-out chapters never reach training data
++    report = {"generated": n_raw, "dropped_heldout_chapter": n_raw - len(raw)}
+ 
+     ruled, rule_drops = [], {}
+     for r in raw:

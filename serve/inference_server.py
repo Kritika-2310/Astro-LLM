@@ -8,6 +8,7 @@ GET  /health
 Run: uvicorn serve.inference_server:app --host 0.0.0.0 --port 8000
 """
 import os
+import sys
 from pathlib import Path
 import torch
 from dotenv import load_dotenv
@@ -19,7 +20,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 load_dotenv()
 BASE_MODEL_ID = os.environ.get("BASE_MODEL_ID", "meta-llama/Meta-Llama-3-8B-Instruct")
 ADAPTER_PATH = os.environ.get("ADAPTER_PATH", "outputs/final_adapter")
-TEMPLATE = Path("prompts/sagan_style_template.txt").read_text()
+TEMPLATE_PATH = os.environ.get("TEMPLATE_PATH", "prompts/sagan_style_template.txt")
+TEMPLATE = Path(TEMPLATE_PATH).read_text()
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from prompting import build_prompt  # noqa: E402
 
 app = FastAPI(title="Sagan Astro LLM")
 tokenizer = base_model = finetuned_model = None
@@ -27,6 +31,7 @@ tokenizer = base_model = finetuned_model = None
 class Query(BaseModel):
     question: str
     max_new_tokens: int = 300
+    style: str | None = None   # beginner / enthusiast / advanced (needs the audience template, see TEMPLATE_PATH)
 
 @app.on_event("startup")
 def load_models():
@@ -41,8 +46,8 @@ def load_models():
     else:
         print(f"No adapter at {ADAPTER_PATH} — finetuned endpoints will return a warning")
 
-def _gen(model, question, max_new_tokens):
-    prompt = TEMPLATE.format(question=question)
+def _gen(model, question, max_new_tokens, style=None):
+    prompt = build_prompt(TEMPLATE, question, style)
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     out = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=True, temperature=0.7, top_p=0.9)
     text = tokenizer.decode(out[0], skip_special_tokens=True)
@@ -50,18 +55,18 @@ def _gen(model, question, max_new_tokens):
 
 @app.post("/generate/base")
 def gen_base(q: Query):
-    return {"model": "base", "answer": _gen(base_model, q.question, q.max_new_tokens)}
+    return {"model": "base", "answer": _gen(base_model, q.question, q.max_new_tokens, q.style)}
 
 @app.post("/generate/finetuned")
 def gen_finetuned(q: Query):
     if not finetuned_model:
         return {"error": "No adapter loaded. Run training first."}
-    return {"model": "finetuned", "answer": _gen(finetuned_model, q.question, q.max_new_tokens)}
+    return {"model": "finetuned", "answer": _gen(finetuned_model, q.question, q.max_new_tokens, q.style)}
 
 @app.post("/compare")
 def compare(q: Query):
-    base_ans = _gen(base_model, q.question, q.max_new_tokens)
-    ft_ans = _gen(finetuned_model, q.question, q.max_new_tokens) if finetuned_model else "No adapter loaded."
+    base_ans = _gen(base_model, q.question, q.max_new_tokens, q.style)
+    ft_ans = _gen(finetuned_model, q.question, q.max_new_tokens, q.style) if finetuned_model else "No adapter loaded."
     return {"question": q.question, "base": base_ans, "finetuned": ft_ans}
 
 @app.get("/health")

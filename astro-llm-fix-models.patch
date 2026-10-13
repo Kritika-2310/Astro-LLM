@@ -1,0 +1,139 @@
+diff --git a/configs/data_pipeline.yaml b/configs/data_pipeline.yaml
+index af0c7cf..1aaef53 100644
+--- a/configs/data_pipeline.yaml
++++ b/configs/data_pipeline.yaml
+@@ -9,13 +9,13 @@ corpus:
+ 
+ generation:
+   # Verify current model names and free-tier quotas in Google AI Studio before running.
+-  gen_model: "gemini-2.5-flash-lite"
++  gen_model: "gemini-3.5-flash-lite"   # 2.5-flash-lite is retired for new keys
+   target_questions: 650       # oversample: roughly 60% survive filtering -> ~400
+   temperature: 0.7
+   sleep_seconds: 4            # between calls (free-tier RPM)
+ 
+ filter:
+-  judge_model: "gemini-2.5-flash"   # use a stronger/different model than gen_model
++  judge_model: "gemini-3.5-flash"   # use a stronger/different model than gen_model; preflight checks it exists
+   judge_min_score: 4                # every score of every style must be >= this
+   dedupe_threshold: 0.65            # TF-IDF cosine between generated questions (paraphrases score ~0.6)
+   leak_threshold: 0.50              # vs eval_benchmark + v1 val/test questions; deliberately strict
+diff --git a/scripts/data_pipeline/02_generate_qa.py b/scripts/data_pipeline/02_generate_qa.py
+index 30ea810..56968dc 100644
+--- a/scripts/data_pipeline/02_generate_qa.py
++++ b/scripts/data_pipeline/02_generate_qa.py
+@@ -12,7 +12,7 @@ import time
+ from pathlib import Path
+ 
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+-from common import (ROOT, QuotaExhausted, append_jsonl, ask_json, gemini_client,  # noqa: E402
++from common import (ROOT, QuotaExhausted, preflight, append_jsonl, ask_json, gemini_client,  # noqa: E402
+                     load_cfg, load_styles, read_jsonl, shared_rules)
+ 
+ QTYPES = [
+@@ -85,6 +85,7 @@ def main():
+                             for k, v in styles.items())
+     keys = ", ".join(f'"{k}": "..."' for k in styles)
+     client = gemini_client()
++    preflight(client, g["gen_model"])
+     rules = shared_rules()
+ 
+     for n, (i, c) in enumerate(todo, 1):
+diff --git a/scripts/data_pipeline/03_filter.py b/scripts/data_pipeline/03_filter.py
+index a6b9d84..7a6b902 100644
+--- a/scripts/data_pipeline/03_filter.py
++++ b/scripts/data_pipeline/03_filter.py
+@@ -17,7 +17,7 @@ import time
+ from pathlib import Path
+ 
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+-from common import (ROOT, QuotaExhausted, append_jsonl, ask_json, gemini_client,  # noqa: E402
++from common import (ROOT, QuotaExhausted, preflight, append_jsonl, ask_json, gemini_client,  # noqa: E402
+                     load_cfg, load_styles, read_jsonl, sentences, word_count, write_jsonl)
+ 
+ BANNED = re.compile(r"\b(the passage|the text|this passage|according to the|the author|the chapter|this chapter)\b", re.I)
+@@ -197,6 +197,7 @@ def main():
+         todo = todo[: args.limit]
+     print(f"{len(judged)} already judged, {len(todo)} to judge this run")
+     client = gemini_client()
++    preflight(client, f["judge_model"])
+     for n, r in enumerate(todo, 1):
+         try:
+             sc = judge_one(client, f["judge_model"], r, styles)
+diff --git a/scripts/data_pipeline/05_make_mcq.py b/scripts/data_pipeline/05_make_mcq.py
+index 4f28a8b..5a87a9c 100644
+--- a/scripts/data_pipeline/05_make_mcq.py
++++ b/scripts/data_pipeline/05_make_mcq.py
+@@ -16,7 +16,7 @@ import time
+ from pathlib import Path
+ 
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+-from common import (ROOT, QuotaExhausted, append_jsonl, ask_json, gemini_client,  # noqa: E402
++from common import (ROOT, QuotaExhausted, preflight, append_jsonl, ask_json, gemini_client,  # noqa: E402
+                     load_cfg, read_jsonl)
+ 
+ GEN = """From the passage below write ONE multiple-choice question that tests a specific fact or concept.
+@@ -65,6 +65,7 @@ def main():
+ 
+     client = gemini_client()
+     gen_model, ver_model = cfg["generation"]["gen_model"], cfg["filter"]["judge_model"]
++    preflight(client, gen_model, ver_model)
+     rejected = rej_path
+     for n, c in enumerate(todo, 1):
+         try:
+diff --git a/scripts/data_pipeline/common.py b/scripts/data_pipeline/common.py
+index a1f216e..9c7fbc9 100644
+--- a/scripts/data_pipeline/common.py
++++ b/scripts/data_pipeline/common.py
+@@ -12,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[2]
+ sys.path.insert(0, str(ROOT / "scripts"))   # so `import prompting` works
+ 
+ 
++class ModelUnavailable(Exception):
++    """The configured Gemini model name is retired / not available to this key. Fix configs/data_pipeline.yaml."""
++
++
+ class QuotaExhausted(Exception):
+     """Raised when the Gemini free-tier quota (usually the daily one) is used up. Re-run later; scripts resume."""
+ 
+@@ -61,6 +65,31 @@ def gemini_client():
+     return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+ 
+ 
++def preflight(client, *models):
++    """Fail fast (before any generation) if a configured model is not usable; list alternatives."""
++    bad = []
++    for m in dict.fromkeys(models):
++        try:
++            client.models.get(model=m)
++        except Exception as e:  # noqa: BLE001
++            bad.append((m, str(e)[:200]))
++    if not bad:
++        return
++    print("Configured Gemini model(s) not available for your key:")
++    for m, e in bad:
++        print(f"  - {m}: {e}")
++    try:
++        names = sorted(x.name.replace("models/", "") for x in client.models.list()
++                       if "generateContent" in (getattr(x, "supported_actions", None) or ["generateContent"]))
++        print("\nModels your key can use (pick from these):")
++        for n in names:
++            if "gemini" in n:
++                print("  ", n)
++    except Exception as e:  # noqa: BLE001
++        print(f"(could not list models: {e})")
++    sys.exit("\nEdit generation.gen_model / filter.judge_model in configs/data_pipeline.yaml, then re-run.")
++
++
+ def parse_json(text):
+     if not text:
+         return None
+@@ -91,6 +120,8 @@ def ask_json(client, model, prompt, temperature=0.7, retries=6):
+             msg = str(e)
+             if "PerDay" in msg or "per day" in msg.lower():
+                 raise QuotaExhausted(msg)
++            if "404" in msg or "NOT_FOUND" in msg or "no longer available" in msg:
++                raise ModelUnavailable(f"Model '{model}' is not available for this key: {msg[:300]}")
+             if any(k in msg for k in ("429", "RESOURCE_EXHAUSTED", "500", "503", "UNAVAILABLE")):
+                 time.sleep(delay)
+                 delay = min(delay * 2, 120)

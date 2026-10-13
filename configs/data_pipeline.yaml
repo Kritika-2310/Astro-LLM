@@ -1,0 +1,37 @@
+seed: 42
+
+corpus:
+  chunk_words: 350            # words per chunk
+  chunk_overlap: 50
+  min_chunk_words: 200        # shorter chunks are dropped
+  # Whole chapters (and their Wikipedia pages) never used for training data.
+  # Explicit list wins. Chosen for topic spread (solar system / stars / galaxies) and size; black-hole chapters (24, 27)
+  # are kept in training because data/eval_benchmark.jsonl has black-hole questions.
+  heldout_chapters: [13, 22, 28]   # 13 Comets and Asteroids, 22 Stars from Adolescence to Old Age, 28 Evolution and Distribution of Galaxies
+  n_heldout_chapters: 3            # only used (random, seeded) if heldout_chapters is empty
+  openstax_chapter_regex: '^(Chapter\s+)?\d+\b'   # which level-1 PDF bookmarks count as chapters
+
+generation:
+  # Verify current model names and free-tier quotas in Google AI Studio before running.
+  gen_model: "gemini-3.5-flash-lite"   # 2.5-flash-lite is retired for new keys
+  target_questions: 650       # oversample: roughly 60% survive filtering -> ~400
+  temperature: 0.7
+  sleep_seconds: 4            # between calls (free-tier RPM)
+
+filter:
+  judge_model: "gemini-3.5-flash"   # use a stronger/different model than gen_model; preflight checks it exists
+  judge_min_score: 4                # every score of every style must be >= this
+  dedupe_threshold: 0.65            # TF-IDF cosine between generated questions (paraphrases score ~0.6)
+  leak_threshold: 0.50              # vs eval_benchmark + v1 val/test questions; deliberately strict
+  strict_numbers: true              # numbers >=100 or decimals in an answer must appear in the source chunk
+  min_style_overlap_jaccard: 0.85   # drop if two styles are near-identical text
+
+split:
+  train: 0.8
+  val: 0.1
+  test: 0.1
+  out_dir: "data/processed_v2"
+
+mcq:
+  n_questions: 150            # candidates; ~100 survive verification
+  out_path: "data/eval/heldout_mcq.jsonl"

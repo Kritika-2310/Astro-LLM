@@ -1,0 +1,15 @@
+{
+  "name": "astro-llm-data",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "postCreateCommand": "pip install --upgrade pip && pip install -r requirements-dev.txt",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-toolsai.jupyter"]
+    }
+  },
+  "secrets": {
+    "GEMINI_API_KEY": {
+      "description": "Google AI Studio key used for dataset generation and judging (free tier)."
+    }
+  }
+}
