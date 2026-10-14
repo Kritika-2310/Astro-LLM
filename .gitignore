@@ -13,3 +13,6 @@ outputs/
 # v2 data pipeline
 data/raw/*.pdf
 data/interim/
+*.patch
+*.log
+nohup.out
