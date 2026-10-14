@@ -21,6 +21,7 @@ generation:
 filter:
   judge_model: "gemini-3.5-flash"   # use a stronger/different model than gen_model; preflight checks it exists
   judge_min_score: 4                # every score of every style must be >= this
+  judge_batch_size: 5              # questions scored per request (free tiers cap requests/day, not tokens)
   dedupe_threshold: 0.65            # TF-IDF cosine between generated questions (paraphrases score ~0.6)
   leak_threshold: 0.50              # vs eval_benchmark + v1 val/test questions; deliberately strict
   strict_numbers: true              # numbers >=100 or decimals in an answer must appear in the source chunk

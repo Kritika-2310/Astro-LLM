@@ -141,6 +141,53 @@ def judge_one(client, model, rec, styles):
     return ask_json(client, model, prompt, temperature=0.0)
 
 
+JUDGE_BATCH = """You are a strict astronomy fact-checker and writing-level rater.
+
+Audiences:
+<<AUD>>
+
+Rate each answer from 1 to 5 on:
+- faithfulness: every claim is supported by that item's passage AND scientifically correct (1 = contains an unsupported or wrong claim)
+- audience_fit: how well vocabulary, depth and length suit the stated audience
+- clarity: clear, well-formed prose without filler
+
+Judge every item independently, using only its own passage as ground truth.
+
+<<ITEMS>>
+
+Return ONLY JSON: {"results": {"i1": {<<SCHEMA>>}, "i2": {...}, ...}} with exactly one entry per item id above."""
+
+METRICS = ("faithfulness", "audience_fit", "clarity")
+
+
+def valid_scores(sc, styles):
+    try:
+        return all(1 <= int(sc[k][m]) <= 5 for k in styles for m in METRICS)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def judge_batch(client, model, recs, styles):
+    """Score several questions in ONE request (free tiers limit requests/day, not tokens). Returns {qid: scores} for valid ones."""
+    aud = "\n".join(f'- {k}: {v["name"]}. {v["description"]}' for k, v in styles.items())
+    schema = ", ".join(f'"{k}": {{"faithfulness": 0, "audience_fit": 0, "clarity": 0}}' for k in styles)
+    items = []
+    for n, r in enumerate(recs, 1):
+        ans = "\n".join(f"ANSWER ({k}):\n{r['answers'][k]}" for k in styles)
+        items.append(f"=== ITEM i{n} ===\nPASSAGE:\n{r['chunk_text']}\n\nQUESTION: {r['question']}\n\n{ans}")
+    prompt = (JUDGE_BATCH.replace("<<AUD>>", aud).replace("<<ITEMS>>", "\n\n".join(items))
+              .replace("<<SCHEMA>>", schema))
+    res = ask_json(client, model, prompt, temperature=0.0)
+    results = res.get("results") if isinstance(res, dict) else None
+    out = {}
+    if isinstance(results, dict):
+        for n, r in enumerate(recs, 1):
+            sc = results.get(f"i{n}")
+            if valid_scores(sc, styles):
+                out[r["qid"]] = sc
+    return out
+
+
 def judge_pass(scores, styles, min_score):
     try:
         return all(int(scores[k][m]) >= min_score for k in styles for m in ("faithfulness", "audience_fit", "clarity"))
@@ -205,16 +252,27 @@ def main():
     print(f"{len(judged)} already judged, {len(todo)} to judge this run")
     client = gemini_client()
     preflight(client, f["judge_model"])
-    for n, r in enumerate(todo, 1):
+    bs = max(1, int(f.get("judge_batch_size", 5)))
+    done, unscorable = 0, 0
+    for i in range(0, len(todo), bs):
+        batch = todo[i:i + bs]
         try:
-            sc = judge_one(client, f["judge_model"], r, styles)
+            got = judge_batch(client, f["judge_model"], batch, styles)
+            for r in batch:                       # retry anything the batch response missed, one at a time
+                if r["qid"] not in got:
+                    got.update(judge_batch(client, f["judge_model"], [r], styles))
         except QuotaExhausted as e:
-            print(f"\nQuota/rate limit hit after {n-1} this run. Re-run later; progress is saved.\n{str(e)[:200]}")
+            print(f"\nQuota/rate limit hit after {done} questions this run. Re-run later; progress is saved.\n{str(e)[:200]}")
             break
-        rec = {"qid": r["qid"], "scores": sc, "judge_model": f["judge_model"]}
-        append_jsonl(judged_path, rec)
-        judged[r["qid"]] = rec
-        print(f"[{n}/{len(todo)}] {r['qid']}")
+        for r in batch:
+            sc = got.get(r["qid"])                # None = judge could not score it twice -> treated as a fail
+            if sc is None:
+                unscorable += 1
+            rec = {"qid": r["qid"], "scores": sc, "judge_model": f["judge_model"]}
+            append_jsonl(judged_path, rec)
+            judged[r["qid"]] = rec
+        done += len(batch)
+        print(f"[{done}/{len(todo)}] batch of {len(batch)} judged ({len(batch) - sum(1 for r in batch if got.get(r['qid']) is None)} scored)", flush=True)
         time.sleep(cfg["generation"]["sleep_seconds"])
 
     if any(r["qid"] not in judged for r in deduped):
@@ -226,6 +284,7 @@ def main():
         sc = judged[r["qid"]]["scores"]
         if sc and judge_pass(sc, styles, f["judge_min_score"]):
             final.append({**r, "judge_scores": sc})
+    report["judge_unscorable"] = sum(1 for r in deduped if not judged[r["qid"]]["scores"])
     report["after_judge"] = len(final)
     report["judge_pass_rate_of_judged"] = round(len(final) / max(len(deduped), 1), 3)
     report["readability_by_style"] = readability(final, styles)
