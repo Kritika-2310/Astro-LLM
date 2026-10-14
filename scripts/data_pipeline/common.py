@@ -102,7 +102,7 @@ def ask_json(client, model, prompt, temperature=0.7, retries=6):
     from google.genai import types
     delay = 5
     bad_json = 0
-    for _ in range(retries):
+    for attempt in range(retries):
         try:
             r = client.models.generate_content(
                 model=model,
@@ -123,6 +123,9 @@ def ask_json(client, model, prompt, temperature=0.7, retries=6):
             if "404" in msg or "NOT_FOUND" in msg or "no longer available" in msg:
                 raise ModelUnavailable(f"Model '{model}' is not available for this key: {msg[:300]}")
             if any(k in msg for k in ("429", "RESOURCE_EXHAUSTED", "500", "503", "UNAVAILABLE")):
+                short = re.sub(r"\s+", " ", msg)[:200]
+                print(f"  [{model}] rate-limited/unavailable; waiting {delay}s "
+                      f"(attempt {attempt + 1}/{retries}): {short}", flush=True)
                 time.sleep(delay)
                 delay = min(delay * 2, 120)
                 continue
