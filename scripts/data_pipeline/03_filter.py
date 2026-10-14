@@ -52,13 +52,16 @@ def jaccard(a, b):
 
 def rule_check(rec, styles, cfg):
     reasons = []
+    if not isinstance(rec.get("question"), str) or not isinstance(rec.get("answers"), dict):
+        return ["malformed_record"]
+    bad = [k for k in styles if not isinstance(rec["answers"].get(k), str) or not rec["answers"][k].strip()]
+    if bad:
+        return [f"{k}:not_string" for k in bad]   # stop here; later checks assume strings
     if BANNED.search(rec["question"]):
         reasons.append("question_mentions_source")
     src_nums = norm_nums(rec["chunk_text"])
-    for k, a in rec["answers"].items():
-        if not isinstance(a, str):
-            reasons.append(f"{k}:not_string")
-            continue
+    for k in styles:
+        a = rec["answers"][k]
         lo, hi = styles[k]["words"]
         wc = word_count(a)
         if wc < lo or wc > hi:
@@ -67,7 +70,7 @@ def rule_check(rec, styles, cfg):
             reasons.append(f"{k}:mentions_source")
         if cfg["strict_numbers"] and (big_numbers(a) - src_nums):
             reasons.append(f"{k}:unsupported_number")
-    keys = list(rec["answers"])
+    keys = list(styles)
     for i in range(len(keys)):
         for j in range(i + 1, len(keys)):
             if jaccard(rec["answers"][keys[i]], rec["answers"][keys[j]]) > cfg["min_style_overlap_jaccard"]:

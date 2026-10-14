@@ -101,7 +101,8 @@ def main():
             print(f"\nQuota/rate limit hit after {n-1} chunks this run. Re-run later; progress is saved.\n{str(e)[:200]}")
             return
         ok = (isinstance(res, dict) and isinstance(res.get("question"), str)
-              and isinstance(res.get("answers"), dict) and all(k in res["answers"] for k in styles))
+              and isinstance(res.get("answers"), dict)
+              and all(isinstance(res["answers"].get(k), str) and res["answers"][k].strip() for k in styles))
         if not ok:
             print(f"[{n}/{len(todo)}] {c['chunk_id']}: bad output, skipped")
             continue
