@@ -23,6 +23,14 @@ from common import (ROOT, QuotaExhausted, preflight, append_jsonl, ask_json, gem
 
 EXERCISE = re.compile(r"\(Hint|your group|Collaborative Group|Thought Questions|Figuring For Yourself|Review Questions|Make a list of|Work with your group", re.I)
 FRAMING = re.compile(r"\b(common|popular|persistent|widespread) (misconception|belief)|\byou might think\b|\bit is tempting\b|\bnot at all\b", re.I)
+YES_NO = re.compile(r"^\s*(is|are|does|do|did|can|could|was|were|will|would|has|have)\b", re.I)
+COMPOUND = re.compile(r",?\s+and\s+(what|how|why|do|does|is|are|which|where|when|who)\b", re.I)
+LATEX = re.compile(r"\$|\\\(|\\\[|\\frac|\\approx|\\propto|\\Delta")
+HEDGE = re.compile(
+    r"\bremains? (an? )?(active|area|subject)|\bactive area of|\bongoing (scientific )?(inquiry|investigation|research)|"
+    r"\boften obscure|\bit is worth noting\b|^note that\b|\brequires? (complex|rigorous|careful)\b|"
+    r"\b(complex|rigorous) (numerical|magnetohydrodynamic|radiative|astrophysical)|\bbeyond (simple|basic|the basic)\b|"
+    r"\bbegin to strain|\brather than historical approximations|\bnon-conservative forces", re.I)
 BANNED = re.compile(r"\b(the passage|the text|this passage|according to the|the author|the chapter|this chapter)\b", re.I)
 NUM = re.compile(r"\d[\d,]*\.?\d*")
 
@@ -53,6 +61,39 @@ def jaccard(a, b):
     return len(A & B) / max(len(A | B), 1)
 
 
+OPENER = re.compile(r"^(however|note that|it is worth noting|while|although|nevertheless|nonetheless)\b", re.I)
+CLAUSE = re.compile(r",\s*(though|although|while|but)\b", re.I)
+
+
+def trim_hedge_closers(rec, styles):
+    """Remove a generic 'it's more complex / still under investigation' caveat at the end of an answer.
+    Those caveats are not in the source passage and tend to carry invented physics. A closing sentence that opens
+    with 'However/Note that/While...' is dropped; otherwise only a trailing ', though ...' clause is cut, so a
+    sentence that also carries a real fact keeps it. Returns the number of answers changed."""
+    n = 0
+    for k in styles:
+        a = rec["answers"].get(k)
+        if not isinstance(a, str):
+            continue
+        parts = sentences(a)
+        if len(parts) < 3:
+            continue
+        last = parts[-1]
+        h = HEDGE.search(last)
+        if not h:
+            continue
+        if OPENER.match(last):
+            rec["answers"][k] = " ".join(parts[:-1])
+            n += 1
+            continue
+        cut = [m for m in CLAUSE.finditer(last) if m.start() < h.start()]
+        if cut:
+            parts[-1] = last[:cut[-1].start()].rstrip(",; ") + "."
+            rec["answers"][k] = " ".join(parts)
+            n += 1
+    return n
+
+
 def rule_check(rec, styles, cfg):
     reasons = []
     if not isinstance(rec.get("question"), str) or not isinstance(rec.get("answers"), dict):
@@ -64,6 +105,10 @@ def rule_check(rec, styles, cfg):
         reasons.append("exercise_chunk")          # end-of-chapter prompts have no facts to ground an answer in
     if BANNED.search(rec["question"]):
         reasons.append("question_mentions_source")
+    if cfg.get("drop_yes_no_questions", True) and YES_NO.search(rec["question"]):
+        reasons.append("yes_no_question")         # invites strawman premises; teaches 'yes/no' not explanation
+    if cfg.get("drop_compound_questions", True) and COMPOUND.search(rec["question"]):
+        reasons.append("compound_question")       # two questions in one: answers drift or skip half
     src_nums = norm_nums(rec["chunk_text"])
     for k in styles:
         a = rec["answers"][k]
@@ -73,6 +118,8 @@ def rule_check(rec, styles, cfg):
             reasons.append(f"{k}:length_{wc}")
         if BANNED.search(a):
             reasons.append(f"{k}:mentions_source")
+        if cfg.get("drop_latex", True) and LATEX.search(a):
+            reasons.append(f"{k}:latex_markup")     # raw $...$ would leak into the model's outputs
         if cfg.get("drop_invented_framing", True) and FRAMING.search(a[:200]):
             reasons.append(f"{k}:invented_framing")   # attributes a belief to people that the passage never states
         if cfg["strict_numbers"] and (big_numbers(a) - src_nums):
@@ -248,13 +295,17 @@ def main():
     report = {"generated": n_raw, "dropped_heldout_chapter": n_raw - len(raw)}
 
     ruled, rule_drops = [], {}
+    trimmed = 0
     for r in raw:
+        if f.get("trim_hedge_closers", True) and isinstance(r.get("answers"), dict):
+            trimmed += trim_hedge_closers(r, styles)    # deterministic, so cached judge verdicts still apply
         reasons = rule_check(r, styles, f)
         if reasons:
             for x in {x.split(":")[1] if ":" in x else x for x in reasons}:
                 rule_drops[x] = rule_drops.get(x, 0) + 1
         else:
             ruled.append(r)
+    report["hedge_closers_trimmed"] = trimmed
     report["after_rules"] = len(ruled)
     report["rule_drop_reasons"] = rule_drops
 

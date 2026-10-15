@@ -25,10 +25,13 @@ filter:
   # Free-tier flash models can allow very few requests/day, so the second judge is a spot-check; remove 'sample' to judge every survivor.
   judges:
     - {model: "gemini-3.5-flash-lite"}
-    - {model: "gemini-3.5-flash", sample: 100}
   judge_min_score: 4                # question_quality and every score of every style must be >= this
   judge_version: 2                  # v2 = strict anchored rubric + question_quality; v1 verdicts (lenient) are ignored
   drop_exercise_chunks: true        # drop questions generated from end-of-chapter exercise prompts
+  drop_yes_no_questions: true       # questions starting Is/Are/Does/Do/Can...: yes/no strawmen (14% of v1 set)
+  drop_compound_questions: true     # "X, and what/how/why Y?" two-part questions
+  drop_latex: true                  # raw $...$ / \\frac in answers
+  trim_hedge_closers: true          # cut a final "...remains an active area of investigation"-type sentence
   drop_invented_framing: true       # drop answers that open with "common misconception" / "you might think" / "not at all"
   judge_batch_size: 5              # questions scored per request (free tiers cap requests/day, not tokens)
   dedupe_threshold: 0.65            # TF-IDF cosine between generated questions (paraphrases score ~0.6)
