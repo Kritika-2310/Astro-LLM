@@ -11,6 +11,7 @@ Usage:
 """
 import argparse
 import json
+import random
 import re
 import sys
 import time
@@ -20,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (ROOT, QuotaExhausted, preflight, append_jsonl, ask_json, gemini_client,  # noqa: E402
                     load_cfg, load_styles, read_jsonl, sentences, word_count, write_jsonl)
 
+EXERCISE = re.compile(r"\(Hint|your group|Collaborative Group|Thought Questions|Figuring For Yourself|Review Questions|Make a list of|Work with your group", re.I)
+FRAMING = re.compile(r"\b(common|popular|persistent|widespread) (misconception|belief)|\byou might think\b|\bit is tempting\b|\bnot at all\b", re.I)
 BANNED = re.compile(r"\b(the passage|the text|this passage|according to the|the author|the chapter|this chapter)\b", re.I)
 NUM = re.compile(r"\d[\d,]*\.?\d*")
 
@@ -57,6 +60,8 @@ def rule_check(rec, styles, cfg):
     bad = [k for k in styles if not isinstance(rec["answers"].get(k), str) or not rec["answers"][k].strip()]
     if bad:
         return [f"{k}:not_string" for k in bad]   # stop here; later checks assume strings
+    if cfg.get("drop_exercise_chunks", True) and (EXERCISE.search(rec["chunk_text"]) or rec["chunk_text"].count("?") >= 4):
+        reasons.append("exercise_chunk")          # end-of-chapter prompts have no facts to ground an answer in
     if BANNED.search(rec["question"]):
         reasons.append("question_mentions_source")
     src_nums = norm_nums(rec["chunk_text"])
@@ -68,6 +73,8 @@ def rule_check(rec, styles, cfg):
             reasons.append(f"{k}:length_{wc}")
         if BANNED.search(a):
             reasons.append(f"{k}:mentions_source")
+        if cfg.get("drop_invented_framing", True) and FRAMING.search(a[:200]):
+            reasons.append(f"{k}:invented_framing")   # attributes a belief to people that the passage never states
         if cfg["strict_numbers"] and (big_numbers(a) - src_nums):
             reasons.append(f"{k}:unsupported_number")
     keys = list(styles)
@@ -141,27 +148,41 @@ def judge_one(client, model, rec, styles):
     return ask_json(client, model, prompt, temperature=0.0)
 
 
-JUDGE_BATCH = """You are a strict astronomy fact-checker and writing-level rater.
+JUDGE_BATCH = """You are a strict astronomy fact-checker. Your job is to catch errors a friendly reader would miss.
+Most answers have at least one weakness; do not give 5 by default.
 
 Audiences:
 <<AUD>>
 
-Rate each answer from 1 to 5 on:
-- faithfulness: every claim is supported by that item's passage AND scientifically correct (1 = contains an unsupported or wrong claim)
-- audience_fit: how well vocabulary, depth and length suit the stated audience
-- clarity: clear, well-formed prose without filler
+For EACH item:
+1. question_quality (1-5). 5 = a natural, self-contained question a learner could ask, answerable from the passage.
+   Score <=3 if the question comes from an exercise/homework/reading-list prompt rather than explanatory content,
+   presupposes something the passage never says (a strawman such as "does X mean Y?" when nobody claimed Y),
+   or cannot be answered from the passage.
+2. For each audience answer, FIRST list "issues": every claim that is
+   (a) factually wrong or contradicts the passage (check physics yourself: scaling laws, units, signs),
+   (b) a specific fact, number, name or mechanism that is NOT in the passage,
+   (c) a belief attributed to people ("many think", "a common misconception") that the passage does not state.
+   Use short phrases; use [] if there are none. THEN score:
+   - faithfulness: 5 = no issues; 4 = one minor imprecision; 3 = any issue of type (b) or (c);
+     2 = a factual error in a secondary claim; 1 = a factual error or contradiction in a central claim.
+   - audience_fit: 5 only if vocabulary, depth and length clearly suit that audience AND differ from the other audiences;
+     3 = acceptable but generic or too close to another audience; 1 = wrong level.
+   - clarity: 5 = clear, no filler, any analogy fits the question; 3 = padded, awkward, or the analogy does not fit.
 
 Judge every item independently, using only its own passage as ground truth.
 
 <<ITEMS>>
 
-Return ONLY JSON: {"results": {"i1": {<<SCHEMA>>}, "i2": {...}, ...}} with exactly one entry per item id above."""
+Return ONLY JSON: {"results": {"i1": {"question_quality": 0, <<SCHEMA>>}, "i2": {...}, ...}} with exactly one entry per item id above."""
 
 METRICS = ("faithfulness", "audience_fit", "clarity")
 
 
 def valid_scores(sc, styles):
     try:
+        if not 1 <= int(sc["question_quality"]) <= 5:
+            return False
         return all(1 <= int(sc[k][m]) <= 5 for k in styles for m in METRICS)
     except (KeyError, TypeError, ValueError):
         return False
@@ -170,7 +191,7 @@ def valid_scores(sc, styles):
 def judge_batch(client, model, recs, styles):
     """Score several questions in ONE request (free tiers limit requests/day, not tokens). Returns {qid: scores} for valid ones."""
     aud = "\n".join(f'- {k}: {v["name"]}. {v["description"]}' for k, v in styles.items())
-    schema = ", ".join(f'"{k}": {{"faithfulness": 0, "audience_fit": 0, "clarity": 0}}' for k in styles)
+    schema = ", ".join(f'"{k}": {{"issues": [], "faithfulness": 0, "audience_fit": 0, "clarity": 0}}' for k in styles)
     items = []
     for n, r in enumerate(recs, 1):
         ans = "\n".join(f"ANSWER ({k}):\n{r['answers'][k]}" for k in styles)
@@ -190,6 +211,8 @@ def judge_batch(client, model, recs, styles):
 
 def judge_pass(scores, styles, min_score):
     try:
+        if int(scores["question_quality"]) < min_score:
+            return False
         return all(int(scores[k][m]) >= min_score for k in styles for m in ("faithfulness", "audience_fit", "clarity"))
     except (KeyError, TypeError, ValueError):
         return False
@@ -244,47 +267,80 @@ def main():
         print("\n--skip-judge: nothing written. Run without it to judge and write filtered.jsonl.")
         return
 
-    judged_path = ROOT / "data/interim/judged.jsonl"
-    judged = {r["qid"]: r for r in read_jsonl(judged_path)}
-    todo = [r for r in deduped if r["qid"] not in judged]
-    if args.limit:
-        todo = todo[: args.limit]
-    print(f"{len(judged)} already judged, {len(todo)} to judge this run")
-    client = gemini_client()
-    preflight(client, f["judge_model"])
-    bs = max(1, int(f.get("judge_batch_size", 5)))
-    done, unscorable = 0, 0
-    for i in range(0, len(todo), bs):
-        batch = todo[i:i + bs]
-        try:
-            got = judge_batch(client, f["judge_model"], batch, styles)
-            for r in batch:                       # retry anything the batch response missed, one at a time
-                if r["qid"] not in got:
-                    got.update(judge_batch(client, f["judge_model"], [r], styles))
-        except QuotaExhausted as e:
-            print(f"\nQuota/rate limit hit after {done} questions this run. Re-run later; progress is saved.\n{str(e)[:200]}")
-            break
-        for r in batch:
-            sc = got.get(r["qid"])                # None = judge could not score it twice -> treated as a fail
-            if sc is None:
-                unscorable += 1
-            rec = {"qid": r["qid"], "scores": sc, "judge_model": f["judge_model"]}
-            append_jsonl(judged_path, rec)
-            judged[r["qid"]] = rec
-        done += len(batch)
-        print(f"[{done}/{len(todo)}] batch of {len(batch)} judged ({len(batch) - sum(1 for r in batch if got.get(r['qid']) is None)} scored)", flush=True)
-        time.sleep(cfg["generation"]["sleep_seconds"])
+    judges = f.get("judges") or [{"model": f["judge_model"]}]
+    models = [j["model"] for j in judges]
+    legacy = read_jsonl(ROOT / "data/interim/judged.jsonl")     # single-judge file from earlier versions
 
-    if any(r["qid"] not in judged for r in deduped):
+    ver = int(f.get("judge_version", 1))                        # bump when the judge prompt changes; old verdicts are then ignored
+    suffix = f"__v{ver}" if ver > 1 else ""
+
+    def cache_file(m):
+        return ROOT / f"data/interim/judged__{re.sub(r'[^A-Za-z0-9.]+', '_', m)}{suffix}.jsonl"
+
+    cache = {}
+    for m in models:
+        d = {r["qid"]: r for r in legacy if r.get("judge_model") == m} if ver == 1 else {}
+        d.update({r["qid"]: r for r in read_jsonl(cache_file(m))})
+        cache[m] = d
+
+    client = gemini_client()
+    preflight(client, *models)
+    bs = max(1, int(f.get("judge_batch_size", 5)))
+    candidates, stages, stopped = deduped, [], False
+
+    for j in judges:                                            # cascade: each judge sees the previous judge's survivors
+        m = j["model"]
+        judged = cache[m]
+        pool = candidates
+        if j.get("sample"):                                     # spot-check: seeded random subset of the survivors
+            pool = sorted(candidates, key=lambda r: r["qid"])
+            random.Random(cfg["seed"]).shuffle(pool)
+            pool = pool[: int(j["sample"])]
+        missing = [r for r in pool if r["qid"] not in judged]
+        todo = missing[: args.limit] if args.limit else missing
+        print(f"[{m}] pool {len(pool)}, already judged {len(pool) - len(missing)}, judging {len(todo)} this run", flush=True)
+        done = 0
+        for i in range(0, len(todo), bs):
+            batch = todo[i:i + bs]
+            try:
+                got = judge_batch(client, m, batch, styles)
+                for r in batch:                                 # retry anything the batch response missed, one at a time
+                    if r["qid"] not in got:
+                        got.update(judge_batch(client, m, [r], styles))
+            except QuotaExhausted as e:
+                print(f"\nQuota/rate limit hit after {done} questions this run ({m}). Re-run later; progress is saved.\n{str(e)[:200]}")
+                stopped = True
+                break
+            for r in batch:
+                rec = {"qid": r["qid"], "scores": got.get(r["qid"]), "judge_model": m}   # None = unscorable -> counts as a fail
+                append_jsonl(cache_file(m), rec)
+                judged[r["qid"]] = rec
+            done += len(batch)
+            print(f"[{m}] {done}/{len(todo)} judged ({sum(1 for r in batch if got.get(r['qid']))} scored in last batch)", flush=True)
+            time.sleep(cfg["generation"]["sleep_seconds"])
+        if stopped or any(r["qid"] not in judged for r in pool):
+            stopped = True
+            break
+        passed = {r["qid"] for r in pool if judged[r["qid"]]["scores"] and judge_pass(judged[r["qid"]]["scores"], styles, f["judge_min_score"])}
+        stage = {"model": m, "judged": len(pool), "passed": len(passed), "rejected": len(pool) - len(passed),
+                 "unscorable": sum(1 for r in pool if not judged[r["qid"]]["scores"]),
+                 "pass_rate": round(len(passed) / max(len(pool), 1), 3)}
+        if j.get("sample"):
+            in_pool = {r["qid"] for r in pool}
+            candidates = [r for r in candidates if r["qid"] not in in_pool or r["qid"] in passed]
+            stage["mode"] = "spot-check: sampled rows it rejects are dropped; unsampled rows keep the previous verdict"
+        else:
+            candidates = [r for r in candidates if r["qid"] in passed]
+        stage["remaining_after"] = len(candidates)
+        stages.append(stage)
+
+    if stopped:
         print("\nNot everything is judged yet; re-run to continue. (No filtered.jsonl written.)")
         return
 
-    final = []
-    for r in deduped:
-        sc = judged[r["qid"]]["scores"]
-        if sc and judge_pass(sc, styles, f["judge_min_score"]):
-            final.append({**r, "judge_scores": sc})
-    report["judge_unscorable"] = sum(1 for r in deduped if not judged[r["qid"]]["scores"])
+    final = [{**r, "judge_scores": {m: cache[m][r["qid"]]["scores"] for m in models if r["qid"] in cache[m]}}
+             for r in candidates]
+    report["judge_stages"] = stages
     report["after_judge"] = len(final)
     report["judge_pass_rate_of_judged"] = round(len(final) / max(len(deduped), 1), 3)
     report["readability_by_style"] = readability(final, styles)

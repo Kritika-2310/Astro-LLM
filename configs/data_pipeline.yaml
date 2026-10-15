@@ -19,8 +19,17 @@ generation:
   sleep_seconds: 4            # between calls (free-tier RPM)
 
 filter:
-  judge_model: "gemini-3.5-flash-lite"   # use a stronger/different model than gen_model; preflight checks it exists
-  judge_min_score: 4                # every score of every style must be >= this
+  judge_model: "gemini-3.5-flash-lite"   # default judge; also used by 05_make_mcq.py to verify MCQ answer keys
+  # Judge cascade for 03_filter.py: each judge scores the survivors of the previous one; a question must pass all.
+  # 'sample: N' = spot-check a seeded random N of the survivors (rows it rejects are dropped, the rest keep the previous verdict).
+  # Free-tier flash models can allow very few requests/day, so the second judge is a spot-check; remove 'sample' to judge every survivor.
+  judges:
+    - {model: "gemini-3.5-flash-lite"}
+    - {model: "gemini-3.5-flash", sample: 100}
+  judge_min_score: 4                # question_quality and every score of every style must be >= this
+  judge_version: 2                  # v2 = strict anchored rubric + question_quality; v1 verdicts (lenient) are ignored
+  drop_exercise_chunks: true        # drop questions generated from end-of-chapter exercise prompts
+  drop_invented_framing: true       # drop answers that open with "common misconception" / "you might think" / "not at all"
   judge_batch_size: 5              # questions scored per request (free tiers cap requests/day, not tokens)
   dedupe_threshold: 0.65            # TF-IDF cosine between generated questions (paraphrases score ~0.6)
   leak_threshold: 0.50              # vs eval_benchmark + v1 val/test questions; deliberately strict
