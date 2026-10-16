@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-
+ 
 import torch
 import yaml
 from datasets import load_dataset
@@ -19,12 +19,12 @@ from transformers import (
     EarlyStoppingCallback,
 )
 from trl import SFTTrainer, SFTConfig
-
+ 
 from prompting import build_prompt, load_styles
-
+ 
 load_dotenv()
-
-
+ 
+ 
 def load_config(path):
     with open(path) as f:
         cfg = yaml.safe_load(f)
@@ -32,21 +32,21 @@ def load_config(path):
     cfg["output"]["output_dir"] = cfg["output"]["output_dir"].replace("${run_name}", run_name)
     cfg["output"]["adapter_dir"] = cfg["output"]["adapter_dir"].replace("${run_name}", run_name)
     return cfg
-
-
+ 
+ 
 def load_lora_config(path="configs/lora_config.yaml"):
     with open(path) as f:
         raw = yaml.safe_load(f)
     return LoraConfig(**raw)
-
-
+ 
+ 
 def format_example(example, template, styles=None):
     question = example["instruction"]
     if example.get("input"):
         question = f"{question}\n{example['input']}"
     return build_prompt(template, question, example.get("style"), styles) + " " + example["output"]
-
-
+ 
+ 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/training_config.yaml")
@@ -54,10 +54,10 @@ def main():
     parser.add_argument("--override-lr", type=float, default=None)
     parser.add_argument("--override-epochs", type=int, default=None)
     args = parser.parse_args()
-
+ 
     cfg = load_config(args.config)
     lora_cfg = load_lora_config()
-
+ 
     if args.override_rank:
         lora_cfg.r = args.override_rank
         lora_cfg.lora_alpha = args.override_rank * 2
@@ -65,10 +65,10 @@ def main():
         cfg["training"]["learning_rate"] = args.override_lr
     if args.override_epochs:
         cfg["training"]["num_train_epochs"] = args.override_epochs
-
+ 
     template = Path(cfg["data"]["prompt_template"]).read_text()
     os.environ.setdefault("WANDB_PROJECT", cfg["tracking"]["wandb_project"])
-
+ 
     bnb_config = None
     if cfg["model"]["load_in_4bit"]:
         bnb_config = BitsAndBytesConfig(
@@ -77,14 +77,14 @@ def main():
             bnb_4bit_compute_dtype=torch.bfloat16,
             bnb_4bit_use_double_quant=True,
         )
-
+ 
     print(f"Loading tokenizer: {cfg['model']['base_model_id']}")
     tokenizer = AutoTokenizer.from_pretrained(
         cfg["model"]["base_model_id"],
         token=os.environ.get("HF_TOKEN")
     )
     tokenizer.pad_token = tokenizer.pad_token or tokenizer.eos_token
-
+ 
     print("Loading model...")
     model = AutoModelForCausalLM.from_pretrained(
         cfg["model"]["base_model_id"],
@@ -94,14 +94,14 @@ def main():
     )
     model = get_peft_model(model, lora_cfg)
     model.print_trainable_parameters()
-
+ 
     dataset = load_dataset("json", data_files={
         "train": cfg["data"]["train_path"],
         "validation": cfg["data"]["val_path"],
     })
-
+ 
     styles = load_styles(cfg["data"]["styles_path"]) if cfg["data"].get("styles_path") else None
-
+ 
     def _format(batch):
         n = len(batch["instruction"])
         sty = batch["style"] if "style" in batch else [None] * n   # v1 data has no style column
@@ -109,17 +109,27 @@ def main():
             format_example({"instruction": i, "input": inp, "output": o, "style": s}, template, styles)
             for i, inp, o, s in zip(batch["instruction"], batch["input"], batch["output"], sty)
         ]}
-
+ 
     dataset = dataset.map(_format, batched=True)
-
+ 
     t = cfg["training"]
+    # transformers >= 5 removed `warmup_ratio` (use `warmup_steps`); older versions only know the ratio.
+    import inspect, math
+    if "warmup_ratio" in inspect.signature(SFTConfig.__init__).parameters:
+        warmup = {"warmup_ratio": t["warmup_ratio"]}
+    else:
+        n_train = len(dataset["train"])
+        eff_bs = t["per_device_train_batch_size"] * t["gradient_accumulation_steps"]
+        total_steps = math.ceil(n_train / eff_bs) * t["num_train_epochs"]
+        warmup = {"warmup_steps": max(1, round(t["warmup_ratio"] * total_steps))}
+        print(f"warmup_ratio unsupported by this transformers version -> warmup_steps={warmup['warmup_steps']} of {total_steps}")
     sft_config = SFTConfig(
         output_dir=cfg["output"]["output_dir"],
         learning_rate=t["learning_rate"],
         num_train_epochs=t["num_train_epochs"],
         per_device_train_batch_size=t["per_device_train_batch_size"],
         gradient_accumulation_steps=t["gradient_accumulation_steps"],
-        warmup_ratio=t["warmup_ratio"],
+        **warmup,
         lr_scheduler_type=t["lr_scheduler_type"],
         weight_decay=t["weight_decay"],
         logging_steps=t["logging_steps"],
@@ -137,7 +147,9 @@ def main():
         bf16=True,
         dataset_text_field="text",
     )
-
+ 
+    # newer TRL names the argument `processing_class`; older versions call it `tokenizer`
+    tok_kw = "processing_class" if "processing_class" in inspect.signature(SFTTrainer.__init__).parameters else "tokenizer"
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
@@ -146,21 +158,23 @@ def main():
         callbacks=[EarlyStoppingCallback(
             early_stopping_patience=t["early_stopping_patience"]
         )],
+        **{tok_kw: tokenizer},
     )
-
+ 
     print("Starting training...")
     trainer.train()
-
+ 
     adapter_dir = cfg["output"]["adapter_dir"]
     Path(adapter_dir).mkdir(parents=True, exist_ok=True)
     trainer.model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)
-
+ 
     with open(Path(adapter_dir) / "run_manifest.json", "w") as f:
         json.dump({"config": cfg, "lora_config": lora_cfg.to_dict()}, f, indent=2, default=str)
-
+ 
     print(f"\nDone. Adapter saved to {adapter_dir}")
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
+ 
