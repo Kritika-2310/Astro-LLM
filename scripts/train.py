@@ -3,15 +3,18 @@ QLoRA fine-tuning using PEFT + TRL.
 Run: python scripts/train.py --config configs/training_config.yaml
 """
 import argparse
+import inspect
 import json
+import math
 import os
+from collections import Counter
 from pathlib import Path
  
 import torch
 import yaml
 from datasets import load_dataset
 from dotenv import load_dotenv
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -98,8 +101,28 @@ def main():
         device_map="auto",
         token=os.environ.get("HF_TOKEN"),
     )
+ 
+    # Standard QLoRA prep: casts non-quantized params (norms, embeddings, lm_head) to fp32,
+    # enables input grads and gradient checkpointing. Avoids bf16 params leaking into the
+    # fp16 GradScaler on T4.
+    if bnb_config is not None:
+        model = prepare_model_for_kbit_training(
+            model,
+            use_gradient_checkpointing=True,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
+        )
+ 
     model = get_peft_model(model, lora_cfg)
+ 
+    # Safety net: GradScaler cannot unscale bf16 grads. Force every trainable param to fp32
+    # when running in fp16 mode (LoRA weights stay fp32, autocast handles the fp16 math).
+    if not use_bf16:
+        for p in model.parameters():
+            if p.requires_grad and p.dtype == torch.bfloat16:
+                p.data = p.data.to(torch.float32)
+ 
     model.print_trainable_parameters()
+    print("Trainable param dtypes:", dict(Counter(str(p.dtype) for p in model.parameters() if p.requires_grad)))
  
     dataset = load_dataset("json", data_files={
         "train": cfg["data"]["train_path"],
@@ -120,7 +143,6 @@ def main():
  
     t = cfg["training"]
     # transformers >= 5 removed `warmup_ratio` (use `warmup_steps`); older versions only know the ratio.
-    import inspect, math
     if "warmup_ratio" in inspect.signature(SFTConfig.__init__).parameters:
         warmup = {"warmup_ratio": t["warmup_ratio"]}
     else:
@@ -152,6 +174,8 @@ def main():
         seed=t["seed"],
         bf16=use_bf16,
         fp16=not use_bf16,
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         dataset_text_field="text",
     )
  
