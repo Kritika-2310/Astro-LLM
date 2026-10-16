@@ -69,12 +69,17 @@ def main():
     template = Path(cfg["data"]["prompt_template"]).read_text()
     os.environ.setdefault("WANDB_PROJECT", cfg["tracking"]["wandb_project"])
  
+    # T4 (compute capability 7.5) has no native bf16 -> use fp16 there, bf16 on Ampere+
+    use_bf16 = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+    amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
+    print(f"Precision: {'bf16' if use_bf16 else 'fp16'}")
+ 
     bnb_config = None
     if cfg["model"]["load_in_4bit"]:
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_compute_dtype=amp_dtype,
             bnb_4bit_use_double_quant=True,
         )
  
@@ -89,6 +94,7 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         cfg["model"]["base_model_id"],
         quantization_config=bnb_config,
+        dtype=amp_dtype,
         device_map="auto",
         token=os.environ.get("HF_TOKEN"),
     )
@@ -144,7 +150,8 @@ def main():
         report_to=cfg["tracking"]["report_to"],
         run_name=cfg["run_name"],
         seed=t["seed"],
-        bf16=True,
+        bf16=use_bf16,
+        fp16=not use_bf16,
         dataset_text_field="text",
     )
  
