@@ -90,7 +90,7 @@ def main():
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--base-model-id",
                         default=os.environ.get("BASE_MODEL_ID",
-                        "meta-llama/Meta-Llama-3.1-8B-Instruct"))
+                        "meta-llama/Meta-Llama-3-8B-Instruct"))
     parser.add_argument("--label", required=True)
     parser.add_argument("--template", default="prompts/sagan_style_template.txt")
     parser.add_argument("--style", default=None,

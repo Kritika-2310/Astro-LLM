@@ -1,7 +1,7 @@
 # Experiment Report: Astro-LLM Fine-Tuning
 
 ## Executive Summary
-Fine-tuned Llama 3.1 8B on 159 astronomy Q&A examples using QLoRA to generate Sagan/deGrasse Tyson-style explanations. Achieved 0.45 eval loss (from 1.68) and 86% token accuracy in 3 epochs on T4 GPU.
+Fine-tuned Llama 3 8B on 159 astronomy Q&A examples using QLoRA to generate Sagan/deGrasse Tyson-style explanations. Achieved 0.45 eval loss (from 1.68) and 86% token accuracy in 3 epochs on T4 GPU.
 
 ## Dataset
 - **Total examples:** 159 unique astronomy Q&A pairs
@@ -23,7 +23,7 @@ Fine-tuned Llama 3.1 8B on 159 astronomy Q&A examples using QLoRA to generate Sa
 | Trainable params | 41.9M / 8.07B (0.52%) |
 
 ## Architecture
-- **Base model:** meta-llama/Meta-Llama-3.1-8B-Instruct
+- **Base model:** meta-llama/Meta-Llama-3-8B-Instruct
 - **LoRA rank:** 16
 - **LoRA alpha:** 32
 - **Dropout:** 0.05
@@ -47,7 +47,7 @@ Fine-tuned Llama 3.1 8B on 159 astronomy Q&A examples using QLoRA to generate Sa
 
 **Question:** What is a black hole?
 
-**Base Llama 3.1 8B (before):**
+**Base Llama 3 8B (before):**
 > A black hole is a region in space where the gravitational pull is so strong that nothing, not even light, can escape from it. Black holes form when massive stars collapse at the end of their lives...
 
 **Fine-tuned Astro-LLM (after):**
@@ -80,5 +80,5 @@ This project demonstrates end-to-end fine-tuning of a 8B parameter model on cons
 
 **Trained by:** Kritika  
 **Date:** July 2026  
-**Model:** meta-llama/Meta-Llama-3.1-8B-Instruct + LoRA adapter  
+**Model:** meta-llama/Meta-Llama-3-8B-Instruct + LoRA adapter  
 **Repository:** https://github.com/Kritika-2310/Astro-LLM

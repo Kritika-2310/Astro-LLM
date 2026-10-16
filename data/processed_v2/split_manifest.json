@@ -1,0 +1,23 @@
+{
+  "seed": 42,
+  "questions": {
+    "train": 260,
+    "val": 32,
+    "test": 33
+  },
+  "rows": {
+    "train": 780,
+    "val": 96,
+    "test": 99
+  },
+  "styles": [
+    "beginner",
+    "enthusiast",
+    "advanced"
+  ],
+  "heldout_chapter_idx": [
+    13,
+    22,
+    28
+  ]
+}
