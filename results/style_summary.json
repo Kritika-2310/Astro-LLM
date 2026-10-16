@@ -1,0 +1,63 @@
+{
+ "n": 99,
+ "length": {
+  "base": {
+   "mean_words": {
+    "beginner": 242.0,
+    "enthusiast": 230.6,
+    "advanced": 253.8
+   },
+   "in_range": "17/99",
+   "in_range_pct": 17.2,
+   "length_rises_with_level": false
+  },
+  "adapter": {
+   "mean_words": {
+    "beginner": 103.8,
+    "enthusiast": 116.7,
+    "advanced": 136.4
+   },
+   "in_range": "97/99",
+   "in_range_pct": 98.0,
+   "length_rises_with_level": true
+  }
+ },
+ "judge": {
+  "n_judged": 99,
+  "audience_fit": {
+   "adapter": 64,
+   "base": 35,
+   "tie": 0,
+   "adapter_win_rate_of_decisive": 0.646,
+   "sign_test_p": 0.0046
+  },
+  "accuracy": {
+   "adapter": 64,
+   "base": 35,
+   "tie": 0,
+   "adapter_win_rate_of_decisive": 0.646,
+   "sign_test_p": 0.0046
+  },
+  "overall": {
+   "adapter": 63,
+   "base": 36,
+   "tie": 0,
+   "adapter_win_rate_of_decisive": 0.636,
+   "sign_test_p": 0.0086
+  },
+  "overall_by_style": {
+   "beginner": {
+    "adapter": 18,
+    "base": 15
+   },
+   "enthusiast": {
+    "base": 15,
+    "adapter": 18
+   },
+   "advanced": {
+    "adapter": 27,
+    "base": 6
+   }
+  }
+ }
+}

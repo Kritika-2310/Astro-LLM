@@ -4,59 +4,65 @@ Style test scoring: base vs adapter answers.
      and whether length rises beginner < enthusiast < advanced (does the model actually adapt?).
   2. Blind pairwise LLM judge (Gemini): audience fit, accuracy vs the reference answer, overall.
      Answer order is randomised per item so position bias doesn't favour either model.
-
+ 
   python scripts/judge_style.py            # needs GEMINI_API_KEY in .env; resumable
 Reads results/style_answers.jsonl, writes results/style_judgments.jsonl and results/style_summary.json
 """
 import argparse, json, random, sys, time
 from collections import defaultdict
 from pathlib import Path
-
+ 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "data_pipeline"))
 from common import (QuotaExhausted, ask_json, gemini_client, load_cfg, load_styles, preflight,  # noqa: E402
                     read_jsonl, word_count)
-
+ 
 PROMPT = """You are grading two answers (A and B) to an astronomy question written for a specific audience.
-
+ 
 AUDIENCE: {name}. {desc}
-
+ 
 QUESTION: {q}
-
+ 
 REFERENCE ANSWER (textbook-grounded; use it to check facts):
 {ref}
-
+ 
 ANSWER A:
 {a}
-
+ 
 ANSWER B:
 {b}
-
+ 
 For each criterion pick "A", "B" or "tie":
 - audience_fit: which is better pitched for this audience (vocabulary, depth, analogies, length)?
 - accuracy: which is more scientifically accurate and free of invented or wrong claims (compare to the reference)?
 - overall: which would you rather give this audience?
 Return ONLY JSON: {{"audience_fit": "A|B|tie", "accuracy": "A|B|tie", "overall": "A|B|tie"}}"""
-
-
+ 
+ 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--answers", default="results/style_answers.jsonl")
     ap.add_argument("--judgments", default="results/style_judgments.jsonl")
     ap.add_argument("--summary", default="results/style_summary.json")
     ap.add_argument("--sleep", type=float, default=4.0)
+    ap.add_argument("--base_field", default="base_answer",
+                    help="which baseline to compare the adapter against: base_answer | base_long_answer | base_prompted_answer")
     ap.add_argument("--no_judge", action="store_true", help="only the objective length metrics")
     a = ap.parse_args()
-
+ 
     rows = read_jsonl(a.answers)
     styles = load_styles()
     summary = {"n": len(rows), "length": {}, "judge": {}}
-
+ 
     # ---- 1. objective length metrics
+    fields = {"base": a.base_field, "adapter": "adapter_answer"}
+    rows = [r for r in rows if a.base_field in r]
+    summary["n"] = len(rows)
+    summary["baseline"] = a.base_field
     for who in ("base", "adapter"):
         per = defaultdict(list)
         for r in rows:
-            per[r["style"]].append(word_count(r[f"{who}_answer"]))
-        inr = sum(styles[r["style"]]["words"][0] <= word_count(r[f"{who}_answer"]) <= styles[r["style"]]["words"][1]
+            per[r["style"]].append(word_count(r[fields[who]]))
+        inr = sum(styles[r["style"]]["words"][0] <= word_count(r[fields[who]]) <= styles[r["style"]]["words"][1]
                   for r in rows)
         means = {s: round(sum(v) / len(v), 1) for s, v in per.items()}
         order = [means.get(s) for s in ("beginner", "enthusiast", "advanced")]
@@ -64,7 +70,7 @@ def main():
                                   "in_range_pct": round(100 * inr / len(rows), 1),
                                   "length_rises_with_level": all(x is not None for x in order)
                                   and order[0] < order[1] < order[2]}
-
+ 
     # ---- 2. blind pairwise judge
     if not a.no_judge:
         cfg = load_cfg()
@@ -80,7 +86,7 @@ def main():
                     flip = rng.random() < 0.5            # decided for every row so reruns stay consistent
                     if (r["question"], r["style"]) in done:
                         continue
-                    A, B = (r["adapter_answer"], r["base_answer"]) if flip else (r["base_answer"], r["adapter_answer"])
+                    A, B = (r["adapter_answer"], r[a.base_field]) if flip else (r[a.base_field], r["adapter_answer"])
                     s = styles[r["style"]]
                     v = ask_json(client, model, PROMPT.format(name=s["name"], desc=s["description"], q=r["question"],
                                                               ref=r["reference"], a=A, b=B), temperature=0.0)
@@ -111,10 +117,11 @@ def main():
         for j in js:
             by[j["style"]][j["overall"]] += 1
         summary["judge"]["overall_by_style"] = {s: dict(v) for s, v in by.items()}
-
+ 
     Path(a.summary).write_text(json.dumps(summary, indent=1))
     print(json.dumps(summary, indent=1))
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
+ 
