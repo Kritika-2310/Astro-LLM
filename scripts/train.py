@@ -192,6 +192,15 @@ def main():
         **{tok_kw: tokenizer},
     )
  
+    # SFTTrainer init can re-cast adapter weights to bf16 behind our back. The optimizer is
+    # created lazily inside train(), so re-cast to fp32 here, right before it is built.
+    if not use_bf16:
+        for p in trainer.model.parameters():
+            if p.requires_grad and p.dtype != torch.float32:
+                p.data = p.data.to(torch.float32)
+    print("Trainable param dtypes after trainer init:",
+          dict(Counter(str(p.dtype) for p in trainer.model.parameters() if p.requires_grad)))
+ 
     print("Starting training...")
     trainer.train()
  
