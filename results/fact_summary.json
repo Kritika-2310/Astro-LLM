@@ -1,0 +1,37 @@
+{
+ "arms": [
+  "adapter_answer",
+  "base_prompted_answer"
+ ],
+ "error_rate": {
+  "adapter_answer": {
+   "errors": 80,
+   "n": 99,
+   "pct": 80.8
+  },
+  "base_prompted_answer": {
+   "errors": 70,
+   "n": 99,
+   "pct": 70.7
+  }
+ },
+ "by_style": {
+  "beginner": {
+   "adapter_answer": "29/33",
+   "base_prompted_answer": "21/33"
+  },
+  "enthusiast": {
+   "adapter_answer": "25/33",
+   "base_prompted_answer": "27/33"
+  },
+  "advanced": {
+   "adapter_answer": "26/33",
+   "base_prompted_answer": "22/33"
+  }
+ },
+ "paired": {
+  "only_adapter_answer_wrong": 21,
+  "only_base_prompted_answer_wrong": 11,
+  "sign_test_p": 0.1102
+ }
+}
